@@ -336,8 +336,58 @@ async function generateQrDataUrl(url) {
   }
 }
 
-function renderLrPdf(data, qrDataUrl) {
+async function buildWatermarkDataUrl() {
+  try {
+    const img = new Image();
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+      img.src = "/logo.png";
+    });
+
+    // A4 at 3.5 px/mm
+    const PX = 3.5;
+    const canvasW = Math.round(210 * PX);
+    const canvasH = Math.round(297 * PX);
+    const logoW = Math.round(52 * PX);
+    const logoH = Math.round((img.naturalHeight / img.naturalWidth) * logoW);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = canvasW;
+    canvas.height = canvasH;
+    const ctx = canvas.getContext("2d");
+
+    ctx.save();
+    ctx.globalAlpha = 0.08;
+    ctx.translate(canvasW / 2, canvasH / 2);
+    ctx.rotate(-Math.PI / 6);
+
+    const gapX = logoW + Math.round(10 * PX);
+    const gapY = logoH + Math.round(14 * PX);
+    const cols = Math.ceil(canvasW / gapX) + 4;
+    const rows = Math.ceil(canvasH / gapY) + 4;
+
+    for (let r = -rows; r <= rows; r++) {
+      for (let c = -cols; c <= cols; c++) {
+        const offsetX = r % 2 === 0 ? 0 : gapX / 2;
+        ctx.drawImage(img, c * gapX + offsetX - logoW / 2, r * gapY - logoH / 2, logoW, logoH);
+      }
+    }
+    ctx.restore();
+
+    return canvas.toDataURL("image/png");
+  } catch {
+    return null;
+  }
+}
+
+function renderLrPdf(data, qrDataUrl, wmDataUrl) {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
+
+  if (wmDataUrl) {
+    doc.addImage(wmDataUrl, "PNG", 0, 0, PAGE_W, 297);
+  }
+
   let y = MARGIN + 2;
 
   // ── Company letterhead ──
@@ -504,8 +554,11 @@ function renderLrPdf(data, qrDataUrl) {
  */
 export async function downloadH2hInvoice(input, verifyUrl) {
   const data = input?.companyName ? input : legacyToLrPdfData(input ?? {});
-  const qrDataUrl = verifyUrl ? await generateQrDataUrl(verifyUrl) : null;
-  const doc = renderLrPdf(data, qrDataUrl);
+  const [qrDataUrl, wmDataUrl] = await Promise.all([
+    verifyUrl ? generateQrDataUrl(verifyUrl) : Promise.resolve(null),
+    buildWatermarkDataUrl(),
+  ]);
+  const doc = renderLrPdf(data, qrDataUrl, wmDataUrl);
   const safeId = String(data.lrNumber || "order").replace(/[^A-Za-z0-9_-]/g, "_");
   doc.save(`LR_${safeId}.pdf`);
 }
