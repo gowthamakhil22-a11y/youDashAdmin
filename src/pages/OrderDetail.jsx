@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import api, { BACKEND_URL } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import StatusPill from "@/components/StatusPill";
@@ -15,6 +16,7 @@ import { ChevronLeft, Phone, BellRing, ArrowRight, Truck, Package, Coins, Activi
 export default function OrderDetail() {
   const { id } = useParams();
   const nav = useNavigate();
+  const queryClient = useQueryClient();
   const [o, setO] = useState(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -81,6 +83,8 @@ export default function OrderDetail() {
     try {
       await api.delete(`/orders/${id}/hub-to-hub`);
       toast.success("Hub-to-hub order deleted");
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["ordersGrouped"] });
       nav("/orders");
     } catch (e) {
       toast.error(e.response?.data?.message || "Delete failed");

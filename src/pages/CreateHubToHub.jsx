@@ -236,30 +236,34 @@ export default function CreateHubToHub() {
       toast.success(`Booked ${order.displayOrderId || order.tracking_id}`);
       setShowDialog(false);
       const lrId = order.displayOrderId || order.tracking_id;
-      const verifyUrl = `${BACKEND_URL}/admin/invoice/${lrId}`;
-      await downloadH2hInvoice(
-        buildLrPdfData({
-          form,
-          originHub,
-          destinationHub: destHub,
-          pickupZone,
-          dropZone,
-          category,
-          order: {
-            ...order,
-            weight,
-            weightUnit,
-            quantity: parseInt(form.qty) || 1,
-            senderName: form.senderName.trim(),
-            senderPhone: form.senderPhone.trim(),
-            receiverName: form.receiverName.trim(),
-            receiverPhone: form.receiverPhone.trim(),
-            packageContents: form.packageContents.trim(),
-          },
-          quote: effectiveQuote,
-        }),
-        verifyUrl,
-      );
+      const verifyUrl = `${APP_URL}/admin/invoice/${lrId}`;
+      try {
+        await downloadH2hInvoice(
+          buildLrPdfData({
+            form,
+            originHub,
+            destinationHub: destHub,
+            pickupZone,
+            dropZone,
+            category,
+            order: {
+              ...order,
+              weight,
+              weightUnit,
+              quantity: parseInt(form.qty) || 1,
+              senderName: form.senderName.trim(),
+              senderPhone: form.senderPhone.trim(),
+              receiverName: form.receiverName.trim(),
+              receiverPhone: form.receiverPhone.trim(),
+              packageContents: form.packageContents.trim(),
+            },
+            quote: effectiveQuote,
+          }),
+          verifyUrl,
+        );
+      } catch {
+        toast.error("Order booked but PDF download failed");
+      }
       nav(`/orders/${order.id}`);
     } catch (err) {
       toast.error(err?.response?.data?.message || "Booking failed");
