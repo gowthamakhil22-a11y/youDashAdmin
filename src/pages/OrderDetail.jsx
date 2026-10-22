@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import api from "@/lib/api";
+import api, { BACKEND_URL } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import StatusPill from "@/components/StatusPill";
 import { milestonesFor, EXCEPTION_STATUSES } from "@/lib/status";
@@ -96,10 +96,12 @@ export default function OrderDetail() {
     const originHubData = allHubs.find((h) => Number(h.id) === Number(o.originHubId)) ?? {};
     const destHubData = allHubs.find((h) => Number(h.id) === Number(o.destinationHubId)) ?? {};
 
-    downloadH2hInvoice(
+    const lrNumber = o.tracking_id || o.displayOrderId;
+    const verifyUrl = `${BACKEND_URL}/admin/invoice/${lrNumber}`;
+    await downloadH2hInvoice(
       buildLrPdfData({
         order: {
-          displayOrderId: o.tracking_id,
+          displayOrderId: lrNumber,
           createdAt: o.created_at,
           paymentType: o.payment_mode,
           senderName: o.sender?.name,
@@ -134,6 +136,7 @@ export default function OrderDetail() {
           phoneNumber: destHubData.phoneNumber || "",
         },
       }),
+      verifyUrl,
     );
     toast.success("LR invoice downloaded");
   }

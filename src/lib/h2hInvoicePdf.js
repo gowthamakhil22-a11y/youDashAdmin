@@ -1,4 +1,5 @@
 import { jsPDF } from "jspdf";
+import QRCode from "qrcode";
 
 const COMPANY = "YouDash Express";
 const LETTERHEAD = {
@@ -327,7 +328,15 @@ function itemRowHeight(doc, desc, colW, minH = 6) {
   return Math.max(minH, lineCount * 3.4 + 2.4);
 }
 
-function renderLrPdf(data) {
+async function generateQrDataUrl(url) {
+  try {
+    return await QRCode.toDataURL(url, { width: 120, margin: 1, color: { dark: "#000000", light: "#ffffff" } });
+  } catch {
+    return null;
+  }
+}
+
+function renderLrPdf(data, qrDataUrl) {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   let y = MARGIN + 2;
 
@@ -445,13 +454,23 @@ function renderLrPdf(data) {
   doc.setLineWidth(LINE_W);
   y += 4;
 
-  // Booked by Admin — outside the box, small italic
+  // Booked by Admin + QR code side by side
+  const QR_SIZE = 22;
+  const QR_X = PAGE_W - MARGIN - QR_SIZE;
+  if (qrDataUrl) {
+    doc.addImage(qrDataUrl, "PNG", QR_X, y - 2, QR_SIZE, QR_SIZE);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(5.5);
+    doc.setTextColor(GREY);
+    doc.text("Scan to verify", QR_X + QR_SIZE / 2, y + QR_SIZE, { align: "center" });
+    doc.setTextColor(0);
+  }
   doc.setFont("helvetica", "italic");
   doc.setFontSize(7);
   doc.setTextColor(GREY);
   doc.text(pdfSafe(`Booked by Admin at ${data.bookingDateTime}`), MARGIN, y);
   doc.setTextColor(0);
-  y += 6;
+  y += qrDataUrl ? QR_SIZE + 4 : 6;
 
   // ── Terms & Conditions ──
   doc.setFont("helvetica", "bold");
@@ -481,11 +500,12 @@ function renderLrPdf(data) {
 /**
  * Generate and download Hub-to-Hub LR PDF.
  * Accepts LrPdfData from buildLrPdfData() or legacy flat params (Order Detail).
+ * Pass verifyUrl to embed a QR code linking to the server-side original invoice.
  */
-export function downloadH2hInvoice(input) {
+export async function downloadH2hInvoice(input, verifyUrl) {
   const data = input?.companyName ? input : legacyToLrPdfData(input ?? {});
-
-  const doc = renderLrPdf(data);
+  const qrDataUrl = verifyUrl ? await generateQrDataUrl(verifyUrl) : null;
+  const doc = renderLrPdf(data, qrDataUrl);
   const safeId = String(data.lrNumber || "order").replace(/[^A-Za-z0-9_-]/g, "_");
   doc.save(`LR_${safeId}.pdf`);
 }

@@ -8,6 +8,9 @@ export const BACKEND_URL =
   configuredBackend || (import.meta.env.DEV ? "" : "https://youdashexpress.com");
 /** Axios baseURL: same-origin in dev (proxied), absolute API host in production. */
 export const API = import.meta.env.DEV ? "" : BACKEND_URL;
+/** Public URL of this admin app — used for QR codes embedded in PDFs. Falls back to BACKEND_URL. */
+export const APP_URL =
+  String(import.meta.env.VITE_APP_URL || "").trim() || BACKEND_URL;
 
 const client = axios.create({ baseURL: API, timeout: 30000 });
 
@@ -64,22 +67,19 @@ function rewriteAdminRequest(config) {
     config.params = { range: rangeToBackend(config.params?.range) };
     return config;
   }
-  if (url === "/orders/hub-to-hub/preview" || url === "/orders/hub-to-hub") {
+  if (url === "/orders/hub-to-hub/preview" || url === "/orders/hub-to-hub" || url === "/orders/hub-to-hub/contacts") {
     config.url = url.replace("/orders", "/admin/orders");
     return config;
   }
   if (url === "/orders") {
     config.url = "/admin/orders";
-    return config;
-  }
-  if (url === "/orders/routes") {
-    config.url = "/admin/orders";
-    config.params = { ...config.params, page: 0, size: 100000 };
+    const { service_mode, ...rest } = config.params || {};
+    config.params = { ...rest, serviceMode: service_mode };
     return config;
   }
   if (url === "/orders/grouped") {
     config.url = "/admin/orders";
-    config.params = { ...config.params, page: 0, size: 100000 };
+    config.params = { ...config.params, page: 0, size: 200 };
     return config;
   }
   if (url.match(/^\/orders\/\d+$/)) {
@@ -358,22 +358,18 @@ function normalizeAdminResponse(response) {
   if (originalUrl === "/dashboard/summary") response.data = normalizeDashboard(data);
   else if (originalUrl === "/reports") response.data = normalizeReport(data);
   else if (originalUrl === "/orders") {
-    const ordersList = Array.isArray(data) ? data : (data?.orders || []);
+    const ordersList = Array.isArray(data) ? data : (data?.content || data?.orders || []);
     response.data = {
-      orders: filterOrders(ordersList.map(normalizeOrder), response.config?.params),
-      totalPages: data?.totalPages,
-      totalElements: data?.totalElements,
-      number: data?.number,
-      size: data?.size
+      orders: ordersList.map(normalizeOrder),
+      totalPages: payload.totalPages ?? data?.totalPages,
+      totalElements: payload.totalElements ?? payload.totalCount ?? data?.totalElements,
+      pageNumber: payload.pageNumber ?? data?.number,
+      size: payload.size ?? data?.size
     };
   }
   else if (originalUrl === "/orders/grouped") {
     const ordersList = Array.isArray(data) ? data : (data?.orders || []);
-    response.data = { groups: groupOrders(filterOrders(ordersList.map(normalizeOrder), response.config?.params)) };
-  }
-  else if (originalUrl === "/orders/routes") {
-    const ordersList = Array.isArray(data) ? data : (data?.orders || []);
-    response.data = { routes: routesFromOrders(ordersList.map(normalizeOrder)) };
+    response.data = { groups: groupOrders(ordersList.map(normalizeOrder)) };
   }
   else if (originalUrl.match(/^\/orders\/\d+$/) || originalUrl === "/orders/by-ref") response.data = normalizeOrder(data);
   else if (originalUrl.match(/^\/orders\/\d+\/activity$/)) response.data = { activity: normalizeActivity(data) };
@@ -1297,7 +1293,11 @@ function normalizeH2hQuote(raw = {}) {
 }
 
 function normalizeOrder(order = {}) {
-  const paymentMode = order.paymentType || order.payment_mode || "PREPAID";
+  const ps = String(order.paymentStatus || order.payment_status || "").toUpperCase();
+  const rawMode = order.paymentType || order.payment_mode || "PREPAID";
+  const paymentMode = (ps === "TO_PAY" || ps === "TOPAY") ? "TO_PAY"
+    : rawMode === "ONLINE" ? "PREPAID"
+    : rawMode;
   const total = order.totalAmount ?? order.total ?? 0;
   return {
     ...order,
@@ -1311,7 +1311,7 @@ function normalizeOrder(order = {}) {
     platform_fee: order.platformFee ?? order.platform_fee ?? null,
     total_amount: order.totalAmount ?? order.total_amount ?? total,
     delivery_type: order.deliveryType || order.delivery_type || "DOOR_TO_DOOR",
-    payment_mode: paymentMode === "ONLINE" ? "PREPAID" : paymentMode,
+    payment_mode: paymentMode,
     weight: order.weight ?? order.weight_kg ?? 0,
     weight_kg: order.weightInKg ?? order.weightKg ?? order.weight_kg ?? order.weight ?? 0,
     weight_unit: order.weightUnit ?? order.weight_unit ?? "KG",
@@ -1640,6 +1640,10 @@ function filterOrders(orders, params = {}) {
     if (params.payment && order.payment_mode !== params.payment) return false;
     if (params.assigned === "yes" && !order.riderId && !order.pickupRiderId && !order.deliveryRiderId) return false;
     if (params.assigned === "no" && (order.riderId || order.pickupRiderId || order.deliveryRiderId)) return false;
+    if (params.route) {
+      const orderRouteKey = `${order.origin_city}-${order.destination_city}`;
+      if (orderRouteKey !== params.route) return false;
+    }
     if (params.q) {
       const q = String(params.q).toLowerCase();
       return [order.tracking_id, order.sender?.name, order.receiver?.name, order.sender?.phone, order.receiver?.phone]

@@ -33,12 +33,14 @@ import FareCalculator from "@/pages/FareCalculator";
 import ZoneForm from "@/pages/AddZone";
 import HubForm from "@/pages/AddHub";
 import RiderDetail from "@/pages/RiderDetail";
+import InvoicePreview from "@/pages/InvoicePreview";
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="login" element={<Login />} />
+        <Route path="invoice/:lrNumber" element={<InvoicePreview />} />
         <Route element={<RequireAuth><Shell /></RequireAuth>}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />

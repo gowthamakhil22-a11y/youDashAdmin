@@ -52,13 +52,13 @@ export default function Orders() {
   const alertInitializedRef = useRef(false);
 
   const [page, setPage] = useState(0);
-  const [size] = useState(15);
+  const [size, setSize] = useState(15);
 
   function filterParams() {
     const params = { service_mode: serviceMode };
     if (status !== "ALL") params.status = status;
     if (route !== "ALL") params.route = route;
-    if (payment !== "ALL") params.payment = payment;
+    if (payment !== "ALL") params.payment = payment === "PREPAID" ? "ONLINE" : payment;
     if (assigned !== "ALL") params.assigned = assigned === "ASSIGNED" ? "yes" : "no";
     if (q) params.q = q;
     params.page = page;
@@ -96,17 +96,19 @@ export default function Orders() {
     }
   }, []);
 
-  const { data: listData, refetch: refetchList } = useQuery({
+  const { data: listData, refetch: refetchList, isFetching: isFetchingList } = useQuery({
     queryKey: ["orders", serviceMode, status, route, payment, assigned, q, page, size],
     queryFn: () => api.get("/orders", { params: filterParams() }).then(r => r.data),
     enabled: view === "list",
   });
 
-  const { data: groupedData, refetch: refetchGroups } = useQuery({
+  const { data: groupedData, refetch: refetchGroups, isFetching: isFetchingGroups } = useQuery({
     queryKey: ["ordersGrouped", serviceMode, status, route, payment, assigned, q],
     queryFn: () => api.get("/orders/grouped", { params: filterParams() }).then(r => r.data),
     enabled: view === "grouped",
   });
+
+  const isLoading = view === "list" ? isFetchingList : isFetchingGroups;
 
   useEffect(() => {
     if (listData?.orders) {
@@ -191,11 +193,24 @@ export default function Orders() {
     knownOutstationIdsRef.current = outstationIds;
   }
 
-  useEffect(() => { api.get("/orders/routes").then(r => setRoutes(r.data.routes)); }, []);
+  useEffect(() => {
+    if (!orders.length) return;
+    const seen = new Map();
+    orders.forEach((o) => {
+      const key = `${o.origin_city}-${o.destination_city}`;
+      if (!seen.has(key)) seen.set(key, { key, label: `${o.origin_city} → ${o.destination_city}` });
+    });
+    setRoutes((prev) => {
+      const merged = new Map(prev.map((r) => [r.key, r]));
+      seen.forEach((v, k) => merged.set(k, v));
+      return Array.from(merged.values());
+    });
+  }, [orders]);
 
   useEffect(() => {
     setPage(0);
-  }, [serviceMode, status, route, payment, assigned, q, dateFilter, customDate, view]);
+    setRoutes([]);
+  }, [serviceMode]);
 
   useEffect(() => {
     setSelected(new Set());
@@ -336,7 +351,7 @@ export default function Orders() {
         <Select label="Status" value={status} onChange={setStatus} options={STATUS_OPTIONS} testid="filter-status" />
         <Select label="Route" value={route} onChange={setRoute} options={["ALL", ...routes.map(r => r.key)]}
           display={(v) => v === "ALL" ? "All routes" : (routes.find(r => r.key === v)?.label || v)} testid="filter-route" />
-        <Select label="Payment" value={payment} onChange={setPayment} options={["ALL", "PREPAID", "COD"]} testid="filter-payment" />
+        <Select label="Payment" value={payment} onChange={setPayment} options={["ALL", "PREPAID", "COD", "TO_PAY"]} testid="filter-payment" />
         <Select label="Assigned" value={assigned} onChange={setAssigned} options={["ALL", "ASSIGNED", "UNASSIGNED"]} testid="filter-assigned" />
         <Select label="Date" value={dateFilter} onChange={setDateFilter} options={DATE_FILTERS.map(([v]) => v)}
           display={(v) => DATE_FILTERS.find(([k]) => k === v)?.[1] || v} testid="filter-date" />
@@ -350,11 +365,8 @@ export default function Orders() {
           setDateFilter("ALL"); setCustomDate("");
         }}
           className="chip"><X size={12} /> Reset</button>
-        <div className="ml-auto text-[12px] text-zinc-500">
-          {view === "list"
-            ? `${visibleOrders.length} orders`
-            : `${filteredGroups.length} groups · ${filteredGroups.reduce((s, g) => s + g.total, 0)} orders`}
-        </div>
+        <Select label="Per page" value={String(size)} onChange={(v) => { setSize(Number(v)); setPage(0); }}
+          options={["15", "25", "50", "100"]} testid="filter-size" />
       </div>
 
       {view === "list" ? (
@@ -377,10 +389,12 @@ export default function Orders() {
               </tr>
             </thead>
             <tbody>
-              {visibleOrders.length === 0 && (
+              {isLoading ? (
+                <tr><td colSpan={10} className="py-16 text-center"><span className="inline-block w-8 h-8 border-2 border-zinc-200 border-t-zinc-600 rounded-full animate-spin" /></td></tr>
+              ) : visibleOrders.length === 0 ? (
                 <tr><td colSpan={10} className="empty">No orders matching filters.</td></tr>
-              )}
-              {paginatedOrders.map(o => (
+              ) : null}
+              {!isLoading && paginatedOrders.map(o => (
                 <tr key={o.id} className="row-link" data-testid={`order-row-${o.tracking_id}`}>
                   <td onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" checked={selected.has(o.id)} onChange={() => toggleRow(o.id)}
@@ -399,7 +413,7 @@ export default function Orders() {
                   <td onClick={() => nav(`/orders/${o.id}`)}><StatusPill status={o.status} /></td>
                   <td onClick={() => nav(`/orders/${o.id}`)} className="text-[11px] text-zinc-600">{o.delivery_type.replaceAll("_", "→")}</td>
                   <td onClick={() => nav(`/orders/${o.id}`)}>
-                    <span className={`pill ${o.payment_mode === "COD" ? "bg-amber-50 text-amber-800 border-amber-300" : "bg-emerald-50 text-emerald-800 border-emerald-300"}`}>{o.payment_mode}</span>
+                    <span className={`pill ${o.payment_mode === "COD" ? "bg-amber-50 text-amber-800 border-amber-300" : o.payment_mode === "TO_PAY" ? "bg-blue-50 text-blue-800 border-blue-300" : "bg-emerald-50 text-emerald-800 border-emerald-300"}`}>{o.payment_mode}</span>
                   </td>
                   <td onClick={() => nav(`/orders/${o.id}`)} className="mono text-[12px]">{o.weight_kg} kg</td>
                   <td onClick={() => nav(`/orders/${o.id}`)} className="mono text-[12px]">₹{o.fare.total}</td>
@@ -412,11 +426,12 @@ export default function Orders() {
           {totalPages > 1 && (
             <div className="flex items-center justify-between border-t border-[var(--border-default)] px-4 py-3 bg-white text-xs">
               <div className="text-zinc-500">
-                Showing <span className="font-medium text-zinc-700">{page * size + 1}</span> to{" "}
-                <span className="font-medium text-zinc-700">
-                  {Math.min((page + 1) * size, visibleOrders.length)}
-                </span>{" "}
-                of <span className="font-medium text-zinc-700">{visibleOrders.length}</span> orders
+                {(() => {
+                  const totalCount = isServerPaginated ? (listData.totalElements ?? visibleOrders.length) : visibleOrders.length;
+                  return <>Showing <span className="font-medium text-zinc-700">{page * size + 1}</span> to{" "}
+                    <span className="font-medium text-zinc-700">{Math.min((page + 1) * size, totalCount)}</span>{" "}
+                    of <span className="font-medium text-zinc-700">{totalCount}</span> orders</>;
+                })()}
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <button
@@ -444,7 +459,7 @@ export default function Orders() {
         </div>
       ) : (
         <div className="space-y-3" data-testid="grouped-view">
-          {filteredGroups.map(g => {
+          {!isLoading && filteredGroups.map(g => {
             const statusOrderIds = g.routes.flatMap((r) => r.order_ids || []);
             const allStatusSelected = statusOrderIds.length > 0 && statusOrderIds.every((id) => selected.has(id));
             const someStatusSelected = statusOrderIds.some((id) => selected.has(id));
@@ -518,7 +533,7 @@ export default function Orders() {
                                   </button>
                                 </span>
                                 <span className="text-zinc-500">{o.sender?.name} → {o.receiver?.name}</span>
-                                <span className={`pill ${o.payment_mode === "COD" ? "bg-amber-50 text-amber-800 border-amber-300" : "bg-emerald-50 text-emerald-800 border-emerald-300"}`}>{o.payment_mode}</span>
+                                <span className={`pill ${o.payment_mode === "COD" ? "bg-amber-50 text-amber-800 border-amber-300" : o.payment_mode === "TO_PAY" ? "bg-blue-50 text-blue-800 border-blue-300" : "bg-emerald-50 text-emerald-800 border-emerald-300"}`}>{o.payment_mode}</span>
                                 <span className="mono">{o.weight_kg} kg</span>
                                 <span className="mono">₹{o.fare?.total}</span>
                                 <span className="text-zinc-500">{new Date(o.created_at).toLocaleString()}</span>
@@ -538,7 +553,9 @@ export default function Orders() {
             </div>
           );
           })}
-          {filteredGroups.length === 0 && <div className="empty surface">No grouped orders.</div>}
+          {isLoading
+            ? <div className="surface py-16 flex justify-center"><span className="inline-block w-8 h-8 border-2 border-zinc-200 border-t-zinc-600 rounded-full animate-spin" /></div>
+            : !filteredGroups.length && <div className="empty surface">No grouped orders.</div>}
         </div>
       )}
 

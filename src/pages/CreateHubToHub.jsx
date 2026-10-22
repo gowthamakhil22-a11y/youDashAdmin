@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import api from "@/lib/api";
+import api, { APP_URL } from "@/lib/api";
+import ContactSuggestInput from "@/components/ContactSuggestInput";
 import PageHeader from "@/components/PageHeader";
 import {
   buildLrPdfData,
@@ -70,6 +71,10 @@ export default function CreateHubToHub() {
   const [showDialog, setShowDialog] = useState(false);
   const [booking, setBooking] = useState(false);
   const previewSeq = useRef(0);
+  // Shared suppress refs — when name or phone picks a contact, the sibling field
+  // skips the fetch that would otherwise fire due to the auto-fill.
+  const senderSuppressRef = useRef(false);
+  const receiverSuppressRef = useRef(false);
 
   useEffect(() => {
     Promise.all([
@@ -230,7 +235,9 @@ export default function CreateHubToHub() {
       const order = res.data;
       toast.success(`Booked ${order.displayOrderId || order.tracking_id}`);
       setShowDialog(false);
-      downloadH2hInvoice(
+      const lrId = order.displayOrderId || order.tracking_id;
+      const verifyUrl = `${BACKEND_URL}/admin/invoice/${lrId}`;
+      await downloadH2hInvoice(
         buildLrPdfData({
           form,
           originHub,
@@ -251,6 +258,7 @@ export default function CreateHubToHub() {
           },
           quote: effectiveQuote,
         }),
+        verifyUrl,
       );
       nav(`/orders/${order.id}`);
     } catch (err) {
@@ -326,16 +334,44 @@ export default function CreateHubToHub() {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <Field label="Sender name">
-              <input className="input w-full" value={form.senderName} onChange={(e) => set("senderName", e.target.value)} />
+              <ContactSuggestInput
+                value={form.senderName}
+                onChange={(v) => set("senderName", v)}
+                onSelect={(c) => { set("senderName", c.name); set("senderPhone", c.phone); }}
+                type="sender"
+                placeholder="Search or enter name"
+                suppressRef={senderSuppressRef}
+              />
             </Field>
             <Field label="Sender phone">
-              <input className="input w-full" value={form.senderPhone} onChange={(e) => set("senderPhone", e.target.value)} />
+              <ContactSuggestInput
+                value={form.senderPhone}
+                onChange={(v) => set("senderPhone", v)}
+                onSelect={(c) => { set("senderName", c.name); set("senderPhone", c.phone); }}
+                type="sender"
+                placeholder="Search or enter phone"
+                suppressRef={senderSuppressRef}
+              />
             </Field>
             <Field label="Receiver name">
-              <input className="input w-full" value={form.receiverName} onChange={(e) => set("receiverName", e.target.value)} />
+              <ContactSuggestInput
+                value={form.receiverName}
+                onChange={(v) => set("receiverName", v)}
+                onSelect={(c) => { set("receiverName", c.name); set("receiverPhone", c.phone); }}
+                type="receiver"
+                placeholder="Search or enter name"
+                suppressRef={receiverSuppressRef}
+              />
             </Field>
             <Field label="Receiver phone">
-              <input className="input w-full" value={form.receiverPhone} onChange={(e) => set("receiverPhone", e.target.value)} />
+              <ContactSuggestInput
+                value={form.receiverPhone}
+                onChange={(v) => set("receiverPhone", v)}
+                onSelect={(c) => { set("receiverName", c.name); set("receiverPhone", c.phone); }}
+                type="receiver"
+                placeholder="Search or enter phone"
+                suppressRef={receiverSuppressRef}
+              />
             </Field>
           </div>
 
